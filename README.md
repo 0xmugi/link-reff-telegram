@@ -2,6 +2,14 @@
 
 A powerful web application designed for crypto traders to efficiently manage and generate referral links across multiple trading bots. Built with modern web technologies and optimized for speed and reliability.
 
+**🌐 Live Demo: [https://link-reff-telegram.vercel.app/](https://link-reff-telegram.vercel.app/)**
+
+## 📸 Dashboard Preview
+
+![Dashboard Preview](https://private-user-images.githubusercontent.com/43572154/481783196-9736720d-9c75-4ed4-905b-87a67ce3c56d.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTYxNTIzNDYsIm5iZiI6MTc1NjE1MjA0NiwicGF0aCI6Ii80MzU3MjE1NC80ODE3ODMxOTYtOTczNjcyMGQtOWM3NS00ZWQ0LTkwNWItODdhNjdjZTNjNTZkLnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA4MjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwODI1VDIwMDA0NlomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTk2MmI0NmUxNWJhMjA1OGQwZTg1MDY5NWM3NjY5ZjRjNzdkODBlNWIzZTc4MTlkYzczYjQ1MmQ4MmFhMzQ5ZmImWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.ciMdGIDqfDU1T_R3SuzRegxvUdjKDn33paTkf-4PDpc)
+
+*Clean, professional interface designed for efficient referral link management*
+
 ## ✨ Features
 
 - **🔐 Secure Authentication**: Email-based OTP login system
