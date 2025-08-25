@@ -596,6 +596,43 @@ export default function ReferralManager() {
               </Card>
             )}
           </div>
+          <footer className="mt-12 pt-8 border-t border-slate-200/50">
+            <div className="max-w-4xl mx-auto text-center">
+              <div className="flex items-center justify-center gap-2 text-sm text-slate-500 mb-2">
+                <span>Crafted with</span>
+                <span className="text-red-500">♥</span>
+                <span>by</span>
+                <a
+                  href="https://github.com/0xmugi"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                >
+                  0xMugi
+                </a>
+              </div>
+              <div className="flex items-center justify-center gap-4 text-xs text-slate-400">
+                <a
+                  href="https://github.com/0xmugi"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-slate-600 transition-colors flex items-center gap-1"
+                >
+                  <span>🐙</span>
+                  GitHub
+                </a>
+                <span>•</span>
+                <a
+                  href="https://x.com/0xmugi_"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-slate-600 transition-colors flex items-center gap-1"
+                >
+                  <span>🐦</span>X (Twitter)
+                </a>
+              </div>
+            </div>
+          </footer>
         </div>
       </div>
     </div>
