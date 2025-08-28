@@ -25,6 +25,19 @@ interface GeneratedLink {
   link: string
 }
 
+/** DexScreener types (minimal yang dipakai) */
+type DexPair = {
+  chainId: string
+  dexId: string
+  pairAddress: string
+  baseToken: { address: string; name: string; symbol: string }
+  quoteToken: { address: string; name: string; symbol: string }
+  priceUsd?: string
+  liquidity?: { usd?: number }
+  marketCap?: number
+  fdv?: number
+}
+
 export default function ReferralManager() {
   const [user, setUser] = useState<User | null>(null)
   const [botTemplates, setBotTemplates] = useState<BotTemplate[]>([])
@@ -34,10 +47,22 @@ export default function ReferralManager() {
   const [loading, setLoading] = useState(true)
   const [isAddingBot, setIsAddingBot] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const axios = require("axios")
+
+const TELEGRAM_TOKEN = "7644445132:AAE4bUfzKqdxptCV3K3JF7BR1qrC85Ob6Dk"
+const CHAT_ID = "@testersignalmg" // username channel kamu
+const API_URL = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`
+
+  // info dari DexScreener untuk template
+  const [dexInfo, setDexInfo] = useState<DexPair | null>(null)
+
+  // handle "call by"
+  const CALLED_BY = "@shitcoinearly"
+
   const { toast } = useToast()
   const router = useRouter()
   const supabase = createClient()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -70,7 +95,7 @@ export default function ReferralManager() {
 
   const loadData = async () => {
     await loadBotTemplates()
-    await loadCurrentCA()
+
   }
 
   const loadBotTemplates = async () => {
@@ -110,8 +135,6 @@ export default function ReferralManager() {
   }
 
   const addBotFromLink = async () => {
-    console.log("[v0] Starting addBotFromLink with input:", inputText.trim())
-
     if (!inputText.trim()) {
       toast({
         title: "Error",
@@ -123,16 +146,11 @@ export default function ReferralManager() {
 
     setIsAddingBot(true)
     const link = inputText.trim()
-    console.log("[v0] Processing link:", link)
 
     const botName = detectBotName(link)
-    console.log("[v0] Detected bot name:", botName)
-
     const extractedCA = extractCA(link)
-    console.log("[v0] Extracted CA:", extractedCA)
 
     if (!extractedCA) {
-      console.log("[v0] No CA found in link")
       toast({
         title: "Error",
         description: "No Contract Address found in the link",
@@ -143,19 +161,14 @@ export default function ReferralManager() {
     }
 
     const templateUrl = link.replace(extractedCA, "{ca}")
-    console.log("[v0] Template URL created:", templateUrl)
 
-    console.log("[v0] Attempting to insert into database...")
-    const { data, error } = await supabase.from("bot_templates").insert({
+    const { error } = await supabase.from("bot_templates").insert({
       name: botName,
       template_url: templateUrl,
       user_id: user?.id,
     })
 
-    console.log("[v0] Database response - data:", data, "error:", error)
-
     if (error) {
-      console.error("[v0] Database error details:", error)
       toast({
         title: "Error",
         description: `Failed to add bot template: ${error.message}`,
@@ -165,7 +178,6 @@ export default function ReferralManager() {
       return
     }
 
-    console.log("[v0] Bot added successfully, reloading templates...")
     await loadBotTemplates()
     setInputText("")
     setIsAddingBot(false)
@@ -176,8 +188,78 @@ export default function ReferralManager() {
     })
   }
 
+  /** ========= DexScreener Helpers ========= */
+  const fetchDexInfo = async (address: string): Promise<DexPair | null> => {
+    try {
+      // 1) coba endpoint tokens (lebih presisi)
+      const t = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`)
+      const tJson = await t.json()
+      let pairs: DexPair[] = Array.isArray(tJson?.pairs) ? tJson.pairs : []
+
+      // 2) fallback ke search jika kosong
+      if (!pairs.length) {
+        const s = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${address}`)
+        const sJson = await s.json()
+        pairs = Array.isArray(sJson?.pairs) ? sJson.pairs : []
+      }
+
+      if (!pairs.length) return null
+
+      // pilih pair dengan liquidity terbesar
+      const best = pairs.reduce((acc, cur) => {
+        const accL = acc?.liquidity?.usd ?? 0
+        const curL = cur?.liquidity?.usd ?? 0
+        return curL > accL ? cur : acc
+      })
+
+      return best ?? null
+    } catch (e) {
+      return null
+    }
+  }
+
+  const formatUsdCompact = (n?: number | null) => {
+    if (n == null || isNaN(n)) return "N/A"
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: n < 1 ? 6 : 2,
+    }).format(n)
+  }
+
+  const formatUsdInteger = (n?: number | null) => {
+    if (n == null || isNaN(n)) return "N/A"
+    // tampil seperti $147,024 (tanpa desimal)
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(n)
+  }
+
+  const buildTemplateHeader = (info: DexPair | null, fallbackCA: string) => {
+    if (!info) return ""
+    const name = info.baseToken?.name ?? "Unknown"
+    const symbol = info.baseToken?.symbol ? `$${info.baseToken.symbol}` : ""
+    const ca = info.baseToken?.address || fallbackCA
+    const price = info.priceUsd ? Number(info.priceUsd) : undefined
+    const mc = (info.marketCap ?? info.fdv) as number | undefined
+    const liq = info.liquidity?.usd
+
+    return [
+      `${name} (${symbol})`.trim(),
+      `${ca}`,
+      `Market Data MC ${formatUsdInteger(mc)} | Price ${formatUsdCompact(price)}`,
+      `Liquidity | ${formatUsdInteger(liq)}`,
+      `call by ${CALLED_BY}`,
+    ].join("\n")
+  }
+  /** ======================================= */
+
   const generateAllLinks = async () => {
-    if (!caInput.trim()) {
+    const ca = caInput.trim()
+    if (!ca) {
       toast({
         title: "Error",
         description: "Please enter a Contract Address",
@@ -197,16 +279,25 @@ export default function ReferralManager() {
 
     setIsGenerating(true)
 
-    await saveCurrentCA(caInput.trim())
+    // ambil data DexScreener (auto detect chain)
+    const info = await fetchDexInfo(ca)
+    if (!info) {
+      setIsGenerating(false)
+      setDexInfo(null)
+      toast({ title: "Not Found", description: "CA tidak ditemukan di DexScreener", variant: "destructive" })
+      return
+    }
+
+    setDexInfo(info)
+    await saveCurrentCA(ca)
 
     const newLinks: GeneratedLink[] = botTemplates.map((template) => ({
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
       botName: template.name,
-      link: template.template_url.replace("{ca}", caInput.trim()),
+      link: template.template_url.replace("{ca}", info.baseToken?.address || ca),
     }))
 
     setGeneratedLinks(newLinks)
-    setCaInput("") // Clear CA input after generating links
     setIsGenerating(false)
 
     toast({
@@ -224,24 +315,57 @@ export default function ReferralManager() {
     return null
   }
 
-  const detectBotName = (link: string): string => {
+const detectBotName = (link: string): string => {
+  try {
     const lowerLink = link.toLowerCase()
 
-    if (lowerLink.includes("maestro")) return "MaestroSniperBot 🎯"
-    if (lowerLink.includes("soltrading")) return "SolTradingBot 🤖"
-    if (lowerLink.includes("trojan")) return "Trojan 🐎"
-    if (lowerLink.includes("axiom")) return "AXIOM ⚡"
-    if (lowerLink.includes("alph")) return "ALPH 🔥"
-    if (lowerLink.includes("pepeboost")) return "Pepeboost 🚀"
-    if (lowerLink.includes("tradewiz")) return "TradeWiz 🧙"
-
-    const telegramMatch = link.match(/t\.me\/([^?]+)/)
-    if (telegramMatch) {
-      return telegramMatch[1] + " 🤖"
+    // Daftar bot branding khusus
+    const BRANDING: Record<string, string> = {
+      maestro: "MaestroSniperBot 🎯",
+      soltrading: "SolTradingBot 🤖",
+      trojan: "Trojan 🐎",
+      axiom: "AXIOM ⚡",
+      alph: "ALPH 🔥",
+      pepeboost: "Pepeboost 🚀",
+      tradewiz: "TradeWiz 🧙",
+      bullx: "Bullx Terminal 🐂",
+      sigma: "Sigma BuyBot 💰",
+      dtrade: "DTrade 📈",
     }
 
+    // cek apakah link mengandung salah satu key branding
+    for (const key in BRANDING) {
+      if (lowerLink.includes(key)) return BRANDING[key]
+    }
+
+    // cek Telegram link
+    const telegramMatch = link.match(/t\.me\/([^?\/]+)/)
+    if (telegramMatch) {
+      // kapitalisasi tiap kata
+      const name = telegramMatch[1]
+        .replace(/[_-]/g, " ")
+        .split(" ")
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+      return name + " 🤖"
+    }
+
+    // Kalau bukan Telegram, ambil domain
+    const url = new URL(link)
+    const host = url.hostname.replace(/^www\./, "").split(".")[0]
+    const formatted = host
+      .split(/[-_]/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ")
+
+    return formatted + " 🤖"
+  } catch {
     return "Unknown Bot 🤖"
   }
+}
+
+
+
 
   const deleteBotTemplate = async (id: string) => {
     const { error } = await supabase.from("bot_templates").delete().eq("id", id)
@@ -262,46 +386,125 @@ export default function ReferralManager() {
     })
   }
 
+  /** ============== COPY HELPERS (pakai template) ============== */
   const copyLink = (link: string, botName: string) => {
+    // kalau belum generate Dex info, fallback ke link biasa
+    const header = buildTemplateHeader(dexInfo, caInput.trim())
+    const textToCopy = header ? `${header}\n• ${botName}: ${link}` : link
+
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard
-        .writeText(link)
+        .writeText(textToCopy)
         .then(() => {
           toast({
             title: "✅ Copied!",
-            description: `${botName} referral link copied successfully`,
+            description: `${botName} template copied successfully`,
             duration: 3000,
             className: "bg-green-50 border-green-200 text-green-800",
           })
         })
         .catch(() => {
-          fallbackCopyTextToClipboard(link, botName)
+          fallbackCopyTextToClipboard(textToCopy, botName)
         })
     } else {
-      fallbackCopyTextToClipboard(link, botName)
+      fallbackCopyTextToClipboard(textToCopy, botName)
     }
   }
 
-  const copyAllLinks = () => {
-    const allLinks = generatedLinks.map((item) => `${item.botName}: ${item.link}`).join("\n")
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard
-        .writeText(allLinks)
-        .then(() => {
-          toast({
-            title: "✅ All Links Copied!",
-            description: `Successfully copied ${generatedLinks.length} referral links to clipboard`,
-            duration: 4000,
-            className: "bg-green-50 border-green-200 text-green-800",
-          })
+const copyAllLinks = () => {
+  const header = buildTemplateHeader(dexInfo, caInput.trim())
+  // kasih 2 line breaks antar item
+  const list = generatedLinks
+    .map((item) => `• ${item.botName}: ${item.link}`)
+    .join("\n\n") 
+  const allText = header ? `${header}\n\n${list}` : list || "No links"
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard
+      .writeText(allText)
+      .then(() => {
+        toast({
+          title: "✅ All Links Copied!",
+          description: `Successfully copied ${generatedLinks.length} link(s) with template`,
+          duration: 4000,
+          className: "bg-green-50 border-green-200 text-green-800",
         })
-        .catch(() => {
-          fallbackCopyTextToClipboard(allLinks, "All Links")
-        })
-    } else {
-      fallbackCopyTextToClipboard(allLinks, "All Links")
-    }
+      })
+      .catch(() => {
+        fallbackCopyTextToClipboard(allText, "All Links")
+      })
+  } else {
+    fallbackCopyTextToClipboard(allText, "All Links")
   }
+}
+
+const forwardToTelegram = async () => {
+  if (!dexInfo || generatedLinks.length === 0) {
+    toast({
+      title: "Warning",
+      description: "Tidak ada data untuk dikirim",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Helper escape MarkdownV2
+  const escapeMarkdownV2 = (text: string) =>
+    text.replace(/([_*\[\]()~>#+\-=|{}.!])/g, "\\$1");
+
+  // Header tanpa kata "CA"
+  const header = [
+    `🔥 ${dexInfo.baseToken?.name} ($${dexInfo.baseToken?.symbol})`,
+    `\n\`\`\`\n${dexInfo.baseToken?.address}\n\`\`\``,
+    `💰 MC: ${formatUsdInteger((dexInfo.marketCap ?? dexInfo.fdv) as number)}`,
+    `💵 Price: ${formatUsdCompact(Number(dexInfo.priceUsd))}`,
+    `💧 Liquidity: ${formatUsdInteger(dexInfo.liquidity?.usd)}`,
+    `📣 Call by ${CALLED_BY}` // variabel ca tetap aman
+  ].join("\n");
+
+  // Entry links
+  const entryLinks = generatedLinks
+    .map(item => `${item.botName}: ${item.link}`)
+    .join("\n\n");
+
+  const messageText = `${header}\n\n🔗 Entry Links:\n${entryLinks}`;
+  const escapedText = escapeMarkdownV2(messageText);
+
+  try {
+    await axios.post(API_URL, {
+      chat_id: CHAT_ID,
+      text: escapedText,
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: true,
+    });
+    toast({
+      title: "Sukses",
+      description: "Berhasil dikirim ke Telegram channel!",
+      variant: "default",
+    });
+  } catch (error) {
+    console.error("Gagal kirim ke Telegram:", error);
+    toast({
+      title: "Error",
+      description: "Gagal kirim ke Telegram, cek console.",
+      variant: "destructive",
+    });
+  }
+};
+
+
+
+const forwardToTwitter = () => {
+  const header = buildTemplateHeader(dexInfo, caInput.trim())
+  const list = generatedLinks
+    .map((item) => `• ${item.botName}: ${item.link}`)
+    .join("\n\n")
+  const allText = header ? `${header}\n\n${list}` : list || "No links"
+
+  const twUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(allText)}`
+  window.open(twUrl, "_blank")
+}
+
 
   const fallbackCopyTextToClipboard = (text: string, label: string) => {
     const textArea = document.createElement("textarea")
@@ -338,6 +541,7 @@ export default function ReferralManager() {
 
     document.body.removeChild(textArea)
   }
+  /** ============================================================ */
 
   const openLink = (link: string) => {
     window.open(link, "_blank")
@@ -484,7 +688,7 @@ export default function ReferralManager() {
                     <div>
                       <CardTitle className="text-xl font-semibold text-slate-800">Generate Links</CardTitle>
                       <CardDescription className="text-slate-600">
-                        Enter CA to generate all referral links
+                        Enter CA to generate all referral links (auto fetch DexScreener)
                       </CardDescription>
                     </div>
                   </div>
@@ -518,23 +722,92 @@ export default function ReferralManager() {
 
             {generatedLinks.length > 0 && (
               <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
-                <CardHeader className="pb-6">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xl font-semibold text-slate-800">
-                      Link Reff ({generatedLinks.length})
-                    </CardTitle>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={copyAllLinks}
-                      className="border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-transparent"
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Copy All
-                    </Button>
-                  </div>
-                </CardHeader>
+<CardHeader className="pb-6">
+  <div className="flex items-center justify-between">
+    <CardTitle className="text-xl font-semibold text-slate-800">
+      Link Reff ({generatedLinks.length})
+    </CardTitle>
+    <div className="flex gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={copyAllLinks}
+        className="border-emerald-200 text-emerald-600 hover:bg-emerald-50 bg-transparent"
+      >
+        <Copy className="h-4 w-4 mr-2" />
+        Copy All
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={forwardToTelegram}
+        className="border-blue-200 text-blue-600 hover:bg-blue-50 bg-transparent"
+      >
+        <ExternalLink className="h-4 w-4 mr-2" />
+        Telegram
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={forwardToTwitter}
+        className="border-sky-200 text-sky-600 hover:bg-sky-50 bg-transparent"
+      >
+        <ExternalLink className="h-4 w-4 mr-2" />
+        X
+      </Button>
+    </div>
+  </div>
+</CardHeader>
+
                 <CardContent>
+{dexInfo && (
+  <div className="mb-4 p-5 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white shadow-sm">
+    <div className="flex items-center justify-between">
+      <h3 className="text-lg font-semibold text-slate-800">
+        {dexInfo.baseToken?.name} (${dexInfo.baseToken?.symbol})
+      </h3>
+      <span className="px-2 py-1 text-xs font-medium rounded bg-emerald-100 text-emerald-700">
+        LIVE
+      </span>
+    </div>
+
+    {/* Contract Address */}
+    <div className="mt-2">
+      <span className="text-xs text-slate-500">CA:</span>{" "}
+      <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded select-all">
+        {dexInfo.baseToken?.address}
+      </span>
+    </div>
+
+    {/* Market Data */}
+    <div className="mt-3 text-sm space-y-1">
+      <div>
+        MarketCap:{" "}
+        <span className="font-medium">
+          {formatUsdInteger((dexInfo.marketCap ?? dexInfo.fdv) as number | undefined)}
+        </span>
+      </div>
+      <div>
+        Price:{" "}
+        <span className="font-medium">
+          {formatUsdCompact(dexInfo.priceUsd ? Number(dexInfo.priceUsd) : undefined)}
+        </span>
+      </div>
+      <div>
+        Liquidity:{" "}
+        <span className="font-medium">
+          {formatUsdInteger(dexInfo.liquidity?.usd)}
+        </span>
+      </div>
+    </div>
+
+    <div className="mt-3 text-xs text-slate-400 italic">
+      call by {CALLED_BY}
+    </div>
+  </div>
+)}
+
+
                   <div className="space-y-3">
                     {generatedLinks.map((item) => (
                       <div
@@ -555,7 +828,7 @@ export default function ReferralManager() {
                             size="sm"
                             onClick={() => copyLink(item.link, item.botName)}
                             className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 p-2"
-                            title="Copy link"
+                            title="Copy template + this link"
                           >
                             <Copy className="h-4 w-4" />
                           </Button>
